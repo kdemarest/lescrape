@@ -98,7 +98,7 @@ async function readParams() {
 }
 
 function findFirstBlank(list,key) {
-  let result = Object.values(list).filter(person=>person[key]==='');
+  let result = Object.values(list).filter( person => !person[key]/* || (Array.isArray(person[key]) && person[key].length==0)*/ );
   let found = result.length <= 0 ? null : result[0];
   //console.log(found);
   return found;
@@ -141,10 +141,24 @@ async function getHistory(nightmare,name,searchInterval) {
     .insert('.mn-connections__search-input', nameClean)
     .wait(2000)
     .click('.mn-connection-card__link')
-    .wait('[data-control-name=contact_see_more]')
+    .wait('ul.pv-top-card--list')
+    .scrollTo(1024, 0)
+    .wait("section#experience-section")
     .evaluate( ()=> {
       try {
-        return document.querySelector('h3 .t-16 span').text.trim();
+          let result = [];
+          let titles = document.querySelectorAll("section#experience-section div.pv-entity__summary-info h3.t-16");
+          let companies = document.querySelectorAll("section#experience-section div.pv-entity__summary-info p.pv-entity__secondary-title");
+          for( let i=0 ; i<titles.length ; ++i ) {
+            result.push({
+              title: titles[i].innerText,
+              company: companies[i].innerText
+            });
+          }
+          return result;
+
+//        return $('h3').innerText.trim();
+        //return document.querySelector('h3').innerText.trim();
       } catch(e) {
         console.log("ERROR CL1: ",JSON.stringify(e));
         return "FAIL "+e.message;
@@ -153,7 +167,10 @@ async function getHistory(nightmare,name,searchInterval) {
     return history;
   }
   catch(e) {
-    console.log("ERROR CL2: ",JSON.stringify(e));
+    console.log("ERROR CL2: ",JSON.stringify(e), e.message);
+    if( e.message.startsWith( '.wait() for section#experience-section' ) ) {
+      return "No Experience Listed";
+    }
     if( e.message.startsWith( '.wait()' ) ) {
       e.restart = true;
       throw e;
@@ -219,22 +236,23 @@ async function main() {
     email: {
       find: (emails) => findFirstBlank(emails,'email'),
       fetch: (nightmare,name,searchInterval) => getEmail(nightmare,name,searchInterval),
-      assign: (emails,person,result) => email[person.name].email = result
+      assign: (emails,person,result) => emails[person.name].email = result
     },
     history: {
       find: (emails) => findFirstBlank(emails,'history'),
       fetch: (nightmare,name,searchInterval) => getHistory(nightmare,name,searchInterval),
-      assign: (emails,person,result) => email[person.name].history = result
+      assign: (emails,person,result) => { emails[person.name].history = result }
     },
   }
 
-  let mode = modeList['email'];
+  let mode = modeList['history'];
 
   while( mode.find(emails) ) {
 
     if( !nightmare ) {
       nightmare = Nightmare(params.nightmare);
       await login( nightmare, params.email, params.password );
+      await nightmare.inject('js', 'jquery.min.js').wait();
     }
 
     let person = mode.find(emails);
@@ -255,9 +273,8 @@ async function main() {
       console.log('RESTARTING');
       continue;
     }
-    console.log(email);
+    console.log(result);
     mode.assign(emails,person,result);
-break
     writeEmails(emails);
   }
 
