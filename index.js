@@ -72,7 +72,8 @@ async function loadEmails() {
       if( insertCount>0 ) {
         console.log('Inserted',insertCount,'names');
       }
-      console.log('Missing',Object.values(emails).filter(person=>person.email==='').length,'emails of ',Object.values(emails).length);
+      console.log('Missing',Object.values(emails).filter(person=>person.email==='').length,'emails of',Object.values(emails).length);
+      console.log('Missing',Object.values(emails).filter(person=>person.history==='').length,'history of',Object.values(emails).length,';',Math.floor(Object.values(emails).filter(person=>!Array.isArray(person.history) || person.history.length===0).length/Object.values(emails).length*100)+'% bad');
       return resolve(emails);
     });
   });
@@ -98,7 +99,7 @@ async function readParams() {
 }
 
 function findFirstBlank(list,key) {
-  let result = Object.values(list).filter( person => !person[key]/* || (Array.isArray(person[key]) && person[key].length==0)*/ );
+  let result = Object.values(list).filter( person => person[key]==='' );
   let found = result.length <= 0 ? null : result[0];
   //console.log(found);
   return found;
@@ -116,8 +117,13 @@ async function login(nightmare, email, password) {
     .click('.btn__primary--large.from__button--floating')
     .wait('.nav-item--mynetwork')
     .wait(3000)
+    return true;
   } catch(e) {
     console.log("An error occured while attempting to login to linkedin.")
+    if( e.message == ".wait() for .nav-item--mynetwork" ) {
+      return false;
+    }
+
     throw(e);
   }
 }
@@ -146,16 +152,16 @@ async function getHistory(nightmare,name,searchInterval) {
     .wait("section#experience-section")
     .evaluate( ()=> {
       try {
-          let result = [];
-          let titles = document.querySelectorAll("section#experience-section div.pv-entity__summary-info h3.t-16");
-          let companies = document.querySelectorAll("section#experience-section div.pv-entity__summary-info p.pv-entity__secondary-title");
-          for( let i=0 ; i<titles.length ; ++i ) {
-            result.push({
-              title: titles[i].innerText,
-              company: companies[i].innerText
-            });
-          }
-          return result;
+        let result = [];
+        let titles = document.querySelectorAll("section#experience-section div.pv-entity__summary-info h3.t-16");
+        let companies = document.querySelectorAll("section#experience-section div.pv-entity__summary-info p.pv-entity__secondary-title");
+        for( let i=0 ; i<titles.length ; ++i ) {
+          result.push({
+            title: titles[i].innerText,
+            company: companies[i].innerText
+          });
+        }
+        return result;
 
 //        return $('h3').innerText.trim();
         //return document.querySelector('h3').innerText.trim();
@@ -251,8 +257,11 @@ async function main() {
 
     if( !nightmare ) {
       nightmare = Nightmare(params.nightmare);
-      await login( nightmare, params.email, params.password );
-      await nightmare.inject('js', 'jquery.min.js').wait();
+      let success = await login( nightmare, params.email, params.password );
+      if( !success ) {
+        console.log("Halted due to probably security challenge.");
+        break;
+      }
     }
 
     let person = mode.find(emails);
